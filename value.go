@@ -1,10 +1,8 @@
 package quantity
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
-	"io"
 	"math"
 )
 
@@ -77,6 +75,20 @@ func (v Value) Unit() UnitID { return v.unit }
 // Kind returns the value's semantic QuantityKind.
 func (v Value) Kind() Kind { return v.kind }
 
+// Data returns the minimal transport representation in ReferenceUnit.
+func (v Value) Data() Data {
+	return Data{Value: v.amount.String(), Unit: v.unit}
+}
+
+// DataIn returns the minimal transport representation expressed in unit.
+func (v Value) DataIn(unit UnitID) (Data, error) {
+	amount, err := v.In(unit)
+	if err != nil {
+		return Data{}, err
+	}
+	return Data{Value: amount.String(), Unit: unit}, nil
+}
+
 // In returns v expressed exactly in unit. It fails if the result has no finite
 // decimal representation.
 func (v Value) In(unit UnitID) (Decimal, error) {
@@ -123,11 +135,7 @@ func (v Value) MarshalJSON() ([]byte, error) {
 	if err := v.valid("marshal value"); err != nil {
 		return nil, err
 	}
-	wire := struct {
-		Value string `json:"value"`
-		Unit  UnitID `json:"unit"`
-	}{Value: v.amount.String(), Unit: v.unit}
-	return json.Marshal(wire)
+	return json.Marshal(v.Data())
 }
 
 // UnmarshalJSON reads the minimal OQS JSON form using StandardCatalog.
@@ -146,26 +154,11 @@ func (c *Catalog) ParseJSON(data []byte) (Value, error) {
 	if len(data) == 0 || len(data) > maxValueJSONBytes {
 		return Value{}, valueError("parse value JSON", "invalid input length")
 	}
-	var wire struct {
-		Value *string `json:"value"`
-		Unit  *UnitID `json:"unit"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&wire); err != nil {
+	var decoded Data
+	if err := json.Unmarshal(data, &decoded); err != nil {
 		return Value{}, &Error{Code: CodeInvalidValue, Op: "parse value JSON", Err: err}
 	}
-	if err := requireJSONEOF(decoder); err != nil {
-		return Value{}, &Error{Code: CodeInvalidValue, Op: "parse value JSON", Err: err}
-	}
-	if wire.Value == nil || wire.Unit == nil {
-		return Value{}, valueError("parse value JSON", "value and unit are required")
-	}
-	amount, err := ParseDecimal(*wire.Value)
-	if err != nil {
-		return Value{}, err
-	}
-	return c.New(amount, *wire.Unit)
+	return c.Decode(decoded)
 }
 
 func (c *Catalog) input(unit UnitID, op string) (UnitDefinition, KindDefinition, error) {
@@ -192,16 +185,6 @@ func (v Value) valid(op string) error {
 		return &Error{Code: CodeInvalidValue, Op: op, Kind: v.kind, Unit: v.unit, Err: errors.New("Value is not stored in ReferenceUnit")}
 	}
 	return nil
-}
-
-func requireJSONEOF(decoder *json.Decoder) error {
-	var extra any
-	if err := decoder.Decode(&extra); err == io.EOF {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	return errors.New("unexpected data after JSON value")
 }
 
 func wrapConversionError(op string, kind Kind, unit UnitID, err error) error {

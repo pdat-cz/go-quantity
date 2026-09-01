@@ -1,7 +1,8 @@
 package quantity
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"math"
 	"testing"
@@ -81,6 +82,59 @@ func TestValueJSONIsSmallAndNormalJSON(t *testing.T) {
 	want := `{"value":"1.625","unit":"electric_current.ampere"}`
 	if got := string(encoded); got != want {
 		t.Fatalf("JSON = %s, want %s", got, want)
+	}
+}
+
+func TestDataInSerializesSelectedUnit(t *testing.T) {
+	value, err := New("1.625", UnitElectricCurrentAmpere)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := value.DataIn(UnitElectricCurrentMilliampere)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Value != "1625" || data.Unit != UnitElectricCurrentMilliampere {
+		t.Fatalf("DataIn(mA) = %#v", data)
+	}
+	decoded, err := StandardCatalog.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Decimal().Cmp(value.Decimal()) != 0 {
+		t.Fatal("Data round trip changed the value")
+	}
+}
+
+func TestJSONV2RejectsAmbiguousInput(t *testing.T) {
+	invalid := [][]byte{
+		[]byte(`{"value":"1","unit":"electric_current.ampere","extra":true}`),
+		[]byte(`{"value":"1","value":"2","unit":"electric_current.ampere"}`),
+		[]byte(`{"Value":"1","unit":"electric_current.ampere"}`),
+	}
+	for _, input := range invalid {
+		var data Data
+		if err := json.Unmarshal(input, &data); err == nil {
+			t.Errorf("ambiguous JSON unexpectedly accepted: %s", input)
+		}
+	}
+}
+
+func TestEncodingJSONV1Compatibility(t *testing.T) {
+	value, err := New("1.625", UnitElectricCurrentAmpere)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := jsonv1.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Value
+	if err := jsonv1.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Decimal().Cmp(value.Decimal()) != 0 || decoded.Unit() != value.Unit() {
+		t.Fatal("encoding/json v1 round trip changed the value")
 	}
 }
 

@@ -46,6 +46,31 @@ The minimal JSON representation is:
 }
 ```
 
+Go 1.27 applications should use the standard `encoding/json/v2` package:
+
+```go
+import "encoding/json/v2"
+
+encoded, err := json.Marshal(current)
+
+var decoded quantity.Value
+err = json.Unmarshal(encoded, &decoded)
+```
+
+`quantity.Data` is the common representation for other encoders:
+
+```go
+data := current.Data()
+encoded, err := yaml.Marshal(data)
+
+var decodedData quantity.Data
+err = yaml.Unmarshal(encoded, &decodedData)
+decoded, err := quantity.StandardCatalog.Decode(decodedData)
+```
+
+The YAML encoder is selected by the application. The core module carries no
+YAML dependency. Use `DataIn` to serialize in a unit other than ReferenceUnit.
+
 ## Current scope
 
 The first vertical slice contains electric current, length, temperature, and
