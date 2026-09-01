@@ -1,0 +1,264 @@
+package quantity
+
+import (
+	"errors"
+	"math"
+	"math/big"
+	"strconv"
+	"strings"
+)
+
+const (
+	maxDecimalDigits     = 100_000
+	maxExponentMagnitude = 100_000
+)
+
+// Decimal is an immutable finite decimal represented as coefficient ×
+// 10^exponent. Its zero value is the number zero.
+type Decimal struct {
+	coefficient *big.Int
+	exponent    int32
+}
+
+// NewDecimal constructs and normalizes coefficient × 10^exponent.
+func NewDecimal(coefficient string, exponent int32) (Decimal, error) {
+	if exponent < -maxExponentMagnitude || exponent > maxExponentMagnitude {
+		return Decimal{}, valueError("new decimal", "exponent is out of range")
+	}
+	integer, ok := new(big.Int).SetString(coefficient, 10)
+	if !ok || coefficient == "" || strings.HasPrefix(coefficient, "+") {
+		return Decimal{}, valueError("new decimal", "invalid coefficient")
+	}
+	digits := strings.TrimPrefix(coefficient, "-")
+	if len(digits) > maxDecimalDigits {
+		return Decimal{}, valueError("new decimal", "coefficient is too long")
+	}
+	return normalizeDecimal(integer, int64(exponent), "new decimal")
+}
+
+// ParseDecimal parses a finite base-10 number. Plain and scientific notation
+// are accepted and normalized.
+func ParseDecimal(text string) (Decimal, error) {
+	if text == "" || len(text) > maxDecimalDigits+32 {
+		return Decimal{}, valueError("parse decimal", "invalid length")
+	}
+	i := 0
+	negative := false
+	if text[i] == '-' || text[i] == '+' {
+		negative = text[i] == '-'
+		i++
+	}
+	if i == len(text) {
+		return Decimal{}, valueError("parse decimal", "missing digits")
+	}
+	integerStart := i
+	for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+		i++
+	}
+	if i == integerStart {
+		return Decimal{}, valueError("parse decimal", "missing integer digits")
+	}
+	digits := text[integerStart:i]
+	fractionDigits := 0
+	if i < len(text) && text[i] == '.' {
+		i++
+		fractionStart := i
+		for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+			i++
+		}
+		if i == fractionStart {
+			return Decimal{}, valueError("parse decimal", "missing fractional digits")
+		}
+		fractionDigits = i - fractionStart
+		digits += text[fractionStart:i]
+	}
+	exponent := int64(-fractionDigits)
+	if i < len(text) && (text[i] == 'e' || text[i] == 'E') {
+		i++
+		exponentNegative := false
+		if i < len(text) && (text[i] == '-' || text[i] == '+') {
+			exponentNegative = text[i] == '-'
+			i++
+		}
+		exponentStart := i
+		for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+			i++
+		}
+		if i == exponentStart || i-exponentStart > 7 {
+			return Decimal{}, valueError("parse decimal", "invalid exponent")
+		}
+		parsed, err := strconv.ParseInt(text[exponentStart:i], 10, 32)
+		if err != nil {
+			return Decimal{}, valueError("parse decimal", "invalid exponent")
+		}
+		if exponentNegative {
+			parsed = -parsed
+		}
+		exponent += parsed
+	}
+	if i != len(text) {
+		return Decimal{}, valueError("parse decimal", "unexpected character")
+	}
+	digits = strings.TrimLeft(digits, "0")
+	if digits == "" {
+		return Decimal{}, nil
+	}
+	if len(digits) > maxDecimalDigits {
+		return Decimal{}, valueError("parse decimal", "coefficient is too long")
+	}
+	if negative {
+		digits = "-" + digits
+	}
+	coefficient, _ := new(big.Int).SetString(digits, 10)
+	return normalizeDecimal(coefficient, exponent, "parse decimal")
+}
+
+// DecimalFromFloat64 converts the shortest round-trippable representation of
+// value to Decimal. It is an explicit approximation boundary.
+func DecimalFromFloat64(value float64) (Decimal, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return Decimal{}, valueError("decimal from float64", "value must be finite")
+	}
+	return ParseDecimal(strconv.FormatFloat(value, 'g', -1, 64))
+}
+
+// Coefficient returns the canonical base-10 coefficient.
+func (d Decimal) Coefficient() string {
+	if d.coefficient == nil {
+		return "0"
+	}
+	return d.coefficient.String()
+}
+
+// Exponent returns the power of ten applied to Coefficient.
+func (d Decimal) Exponent() int32 { return d.exponent }
+
+// String returns the exact value without exponent notation.
+func (d Decimal) String() string {
+	if d.coefficient == nil || d.coefficient.Sign() == 0 {
+		return "0"
+	}
+	negative := d.coefficient.Sign() < 0
+	digits := new(big.Int).Abs(d.coefficient).String()
+	exponent := int(d.exponent)
+	var text string
+	switch {
+	case exponent >= 0:
+		text = digits + strings.Repeat("0", exponent)
+	case len(digits)+exponent > 0:
+		point := len(digits) + exponent
+		text = digits[:point] + "." + digits[point:]
+	default:
+		text = "0." + strings.Repeat("0", -exponent-len(digits)) + digits
+	}
+	if negative {
+		return "-" + text
+	}
+	return text
+}
+
+// Float64 converts d to a binary float and reports whether the conversion is
+// exact.
+func (d Decimal) Float64() (float64, bool) { return d.rat().Float64() }
+
+// Add returns the exact sum.
+func (d Decimal) Add(other Decimal) (Decimal, error) {
+	return decimalFromRatExact(new(big.Rat).Add(d.rat(), other.rat()), "add")
+}
+
+// Sub returns the exact difference.
+func (d Decimal) Sub(other Decimal) (Decimal, error) {
+	return decimalFromRatExact(new(big.Rat).Sub(d.rat(), other.rat()), "subtract")
+}
+
+// Cmp compares d and other.
+func (d Decimal) Cmp(other Decimal) int { return d.rat().Cmp(other.rat()) }
+
+func (d Decimal) rat() *big.Rat {
+	if d.coefficient == nil {
+		return new(big.Rat)
+	}
+	numerator := new(big.Int).Set(d.coefficient)
+	if d.exponent >= 0 {
+		numerator.Mul(numerator, pow10(int(d.exponent)))
+		return new(big.Rat).SetInt(numerator)
+	}
+	return new(big.Rat).SetFrac(numerator, pow10(-int(d.exponent)))
+}
+
+func decimalFromRatExact(value *big.Rat, op string) (Decimal, error) {
+	if value == nil || value.Sign() == 0 {
+		return Decimal{}, nil
+	}
+	numerator := new(big.Int).Set(value.Num())
+	denominator := new(big.Int).Set(value.Denom())
+	two, five := big.NewInt(2), big.NewInt(5)
+	twos, fives := 0, 0
+	rem := new(big.Int)
+	for {
+		quotient := new(big.Int)
+		quotient.QuoRem(denominator, two, rem)
+		if rem.Sign() != 0 {
+			break
+		}
+		denominator = quotient
+		twos++
+	}
+	for {
+		quotient := new(big.Int)
+		quotient.QuoRem(denominator, five, rem)
+		if rem.Sign() != 0 {
+			break
+		}
+		denominator = quotient
+		fives++
+	}
+	if denominator.Cmp(big.NewInt(1)) != 0 {
+		return Decimal{}, &Error{Code: CodeInexact, Op: op, Err: errors.New("result has no finite decimal representation")}
+	}
+	scale := twos
+	if fives > scale {
+		scale = fives
+	}
+	if scale > maxExponentMagnitude {
+		return Decimal{}, valueError(op, "result exponent is out of range")
+	}
+	if twos < scale {
+		numerator.Mul(numerator, new(big.Int).Exp(two, big.NewInt(int64(scale-twos)), nil))
+	}
+	if fives < scale {
+		numerator.Mul(numerator, new(big.Int).Exp(five, big.NewInt(int64(scale-fives)), nil))
+	}
+	return normalizeDecimal(numerator, int64(-scale), op)
+}
+
+func normalizeDecimal(coefficient *big.Int, exponent int64, op string) (Decimal, error) {
+	if coefficient == nil || coefficient.Sign() == 0 {
+		return Decimal{}, nil
+	}
+	ten, remainder := big.NewInt(10), new(big.Int)
+	for {
+		quotient := new(big.Int)
+		quotient.QuoRem(coefficient, ten, remainder)
+		if remainder.Sign() != 0 {
+			break
+		}
+		coefficient = quotient
+		exponent++
+	}
+	if exponent < -maxExponentMagnitude || exponent > maxExponentMagnitude {
+		return Decimal{}, valueError(op, "exponent is out of range")
+	}
+	if len(new(big.Int).Abs(coefficient).String()) > maxDecimalDigits {
+		return Decimal{}, valueError(op, "coefficient is too long")
+	}
+	return Decimal{coefficient: new(big.Int).Set(coefficient), exponent: int32(exponent)}, nil
+}
+
+func pow10(exponent int) *big.Int {
+	return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exponent)), nil)
+}
+
+func valueError(op, message string) error {
+	return &Error{Code: CodeInvalidValue, Op: op, Err: errors.New(message)}
+}
