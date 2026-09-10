@@ -3,7 +3,6 @@ package quantity
 import (
 	"encoding/json/v2"
 	"errors"
-	"math"
 )
 
 const maxValueJSONBytes = 4096
@@ -46,17 +45,20 @@ func (c *Catalog) New(amount Decimal, unit UnitID) (Value, error) {
 }
 
 // NewFloat64 converts a finite binary float from unit to ReferenceUnit. The
-// result is stored as the shortest round-trippable decimal representation.
+// input is read as its shortest round-trippable decimal, the transform is
+// applied exactly, and the result is rounded to float64 once before being
+// stored as the shortest decimal of that float.
 func (c *Catalog) NewFloat64(amount float64, unit UnitID) (Value, error) {
-	if math.IsNaN(amount) || math.IsInf(amount, 0) {
-		return Value{}, valueError("new float64 value", "value must be finite")
+	decimal, err := DecimalFromFloat64(amount)
+	if err != nil {
+		return Value{}, err
 	}
 	definition, kind, err := c.input(unit, "new float64 value")
 	if err != nil {
 		return Value{}, err
 	}
-	referenceFloat, err := definition.toReference.toReferenceFloat64(amount)
-	if err != nil || math.IsNaN(referenceFloat) || math.IsInf(referenceFloat, 0) {
+	referenceFloat, err := definition.toReference.toReferenceFloat64(decimal)
+	if err != nil {
 		return Value{}, wrapConversionError("new float64 value", kind.id, unit, err)
 	}
 	reference, err := DecimalFromFloat64(referenceFloat)
@@ -122,9 +124,8 @@ func (v Value) InFloat64(unit UnitID) (float64, error) {
 	if target.kind != v.kind {
 		return 0, &Error{Code: CodeKindMismatch, Op: "convert value to float64", Kind: v.kind, Unit: unit}
 	}
-	reference, _ := v.amount.Float64()
-	converted, err := target.toReference.fromReferenceFloat64(reference)
-	if err != nil || math.IsNaN(converted) || math.IsInf(converted, 0) {
+	converted, err := target.toReference.fromReferenceFloat64(v.amount)
+	if err != nil {
 		return 0, wrapConversionError("convert value to float64", v.kind, unit, err)
 	}
 	return converted, nil
@@ -201,9 +202,6 @@ func (v Value) valid(op string) error {
 }
 
 func wrapConversionError(op string, kind Kind, unit UnitID, err error) error {
-	if err == nil {
-		err = errors.New("conversion produced a non-finite value")
-	}
 	var typed *Error
 	if errors.As(err, &typed) && typed.Code == CodeInexact {
 		return &Error{Code: CodeInexact, Op: op, Kind: kind, Unit: unit, Err: typed.Err}

@@ -2,6 +2,7 @@ package quantity
 
 import (
 	"errors"
+	"math"
 	"math/big"
 )
 
@@ -80,22 +81,35 @@ func (t Transform) fromReferenceExact(value Decimal) (Decimal, error) {
 	return decimalFromRatExact(result, "convert from reference")
 }
 
-func (t Transform) toReferenceFloat64(value float64) (float64, error) {
+// toReferenceFloat64 applies the exact affine transform to value and rounds
+// once at the end. Rounding scale and offset separately, or rounding the input
+// before the transform, produced 211.99999999999991 °F for 100 °C and spurious
+// overflow for representable results.
+func (t Transform) toReferenceFloat64(value Decimal) (float64, error) {
 	if !t.valid() {
 		return 0, &Error{Code: CodeInvalidDefinition, Op: "convert to reference float64", Err: errors.New("invalid transform")}
 	}
-	scale, _ := t.scale.Float64()
-	offset, _ := t.offset.Float64()
-	return value*scale + offset, nil
+	result := new(big.Rat).Mul(value.rat(), t.scale)
+	result.Add(result, t.offset)
+	return finiteFloat64(result, "convert to reference float64")
 }
 
-func (t Transform) fromReferenceFloat64(value float64) (float64, error) {
+// fromReferenceFloat64 inverts the transform exactly and rounds once.
+func (t Transform) fromReferenceFloat64(value Decimal) (float64, error) {
 	if !t.valid() {
 		return 0, &Error{Code: CodeInvalidDefinition, Op: "convert from reference float64", Err: errors.New("invalid transform")}
 	}
-	scale, _ := t.scale.Float64()
-	offset, _ := t.offset.Float64()
-	return (value - offset) / scale, nil
+	result := new(big.Rat).Sub(value.rat(), t.offset)
+	result.Quo(result, t.scale)
+	return finiteFloat64(result, "convert from reference float64")
+}
+
+func finiteFloat64(value *big.Rat, op string) (float64, error) {
+	result, _ := value.Float64()
+	if math.IsInf(result, 0) {
+		return 0, &Error{Code: CodeInvalidValue, Op: op, Err: errors.New("result overflows float64")}
+	}
+	return result, nil
 }
 
 func parseRational(numerator, denominator string) (*big.Rat, error) {
