@@ -3,6 +3,7 @@ package quantity
 import (
 	"errors"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -103,5 +104,33 @@ func TestNewTransformBoundsAndValidatesRationals(t *testing.T) {
 	}
 	if n, d := transform.Scale(); n != "5" || d != "9" {
 		t.Fatalf("Scale() = %s/%s, want 5/9", n, d)
+	}
+}
+
+func TestTransformIsNotComparableWithOperator(t *testing.T) {
+	for _, typ := range []reflect.Type{reflect.TypeOf(Transform{}), reflect.TypeOf(UnitDefinition{})} {
+		if typ.Comparable() {
+			t.Errorf("%s must not be comparable with ==, it would compare pointers", typ)
+		}
+	}
+}
+
+func TestTransformEqual(t *testing.T) {
+	half := mustTransform("1", "2", "0", "1")
+	if !half.Equal(mustTransform("2", "4", "0", "1")) {
+		t.Fatal("1/2 and 2/4 should be equal")
+	}
+	if half.Equal(mustTransform("1", "2", "1", "1")) {
+		t.Fatal("different offsets compared equal")
+	}
+	if !IdentityTransform().Equal(mustTransform("1", "1", "0", "1")) {
+		t.Fatal("identity should equal 1/1 + 0")
+	}
+	var zero Transform
+	if zero.Equal(IdentityTransform()) || !zero.Equal(Transform{}) {
+		t.Fatal("zero transform equality is wrong")
+	}
+	if got := StandardCatalog.Units(KindLength); !got[0].ToReference().Equal(mustTransform("1", "100", "0", "1")) {
+		t.Fatalf("first length unit %s has unexpected transform", got[0].ID())
 	}
 }

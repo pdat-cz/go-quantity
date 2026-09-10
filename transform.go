@@ -9,7 +9,11 @@ import (
 
 // Transform is an exact affine conversion to a Kind's ReferenceUnit:
 // reference = value*scale + offset.
+//
+// Transform is deliberately not comparable with ==, which would compare
+// internal pointers. Use Equal.
 type Transform struct {
+	_      [0]func() // makes == a compile error
 	scale  *big.Rat
 	offset *big.Rat
 }
@@ -47,6 +51,14 @@ func (t Transform) Offset() (string, string) {
 		return "0", "1"
 	}
 	return t.offset.Num().String(), t.offset.Denom().String()
+}
+
+// Equal reports whether t and other describe the same conversion.
+func (t Transform) Equal(other Transform) bool {
+	if !t.valid() || !other.valid() {
+		return !t.valid() && !other.valid()
+	}
+	return t.scale.Cmp(other.scale) == 0 && t.offset.Cmp(other.offset) == 0
 }
 
 // IsIdentity reports whether t leaves a value unchanged.
