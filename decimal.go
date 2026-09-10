@@ -163,12 +163,34 @@ func (d Decimal) Float64() (float64, bool) { return d.rat().Float64() }
 
 // Add returns the exact sum.
 func (d Decimal) Add(other Decimal) (Decimal, error) {
-	return decimalFromRatExact(new(big.Rat).Add(d.rat(), other.rat()), "add")
+	return d.addScaled(other, 1, "add")
 }
 
 // Sub returns the exact difference.
 func (d Decimal) Sub(other Decimal) (Decimal, error) {
-	return decimalFromRatExact(new(big.Rat).Sub(d.rat(), other.rat()), "subtract")
+	return d.addScaled(other, -1, "subtract")
+}
+
+// addScaled computes d + sign*other by aligning coefficients to the smaller
+// exponent. It never goes through big.Rat, so no factor stripping is needed.
+func (d Decimal) addScaled(other Decimal, sign int64, op string) (Decimal, error) {
+	if other.coefficient == nil || other.coefficient.Sign() == 0 {
+		return d, nil
+	}
+	if d.coefficient == nil || d.coefficient.Sign() == 0 {
+		return normalizeDecimal(new(big.Int).Mul(other.coefficient, big.NewInt(sign)), int64(other.exponent), op)
+	}
+	left := new(big.Int).Set(d.coefficient)
+	right := new(big.Int).Mul(other.coefficient, big.NewInt(sign))
+	exponent := int64(d.exponent)
+	switch {
+	case d.exponent > other.exponent:
+		left.Mul(left, pow10(int(d.exponent-other.exponent)))
+		exponent = int64(other.exponent)
+	case d.exponent < other.exponent:
+		right.Mul(right, pow10(int(other.exponent-d.exponent)))
+	}
+	return normalizeDecimal(left.Add(left, right), exponent, op)
 }
 
 // Cmp compares d and other.
@@ -192,64 +214,70 @@ func decimalFromRatExact(value *big.Rat, op string) (Decimal, error) {
 	}
 	numerator := new(big.Int).Set(value.Num())
 	denominator := new(big.Int).Set(value.Denom())
-	two, five := big.NewInt(2), big.NewInt(5)
-	twos, fives := 0, 0
-	rem := new(big.Int)
-	for {
-		quotient := new(big.Int)
-		quotient.QuoRem(denominator, two, rem)
-		if rem.Sign() != 0 {
-			break
-		}
-		denominator = quotient
-		twos++
-	}
-	for {
-		quotient := new(big.Int)
-		quotient.QuoRem(denominator, five, rem)
-		if rem.Sign() != 0 {
-			break
-		}
-		denominator = quotient
-		fives++
-	}
-	if denominator.Cmp(big.NewInt(1)) != 0 {
+	twos := int(denominator.TrailingZeroBits())
+	denominator.Rsh(denominator, uint(twos))
+	fives := stripFactor(denominator, 5)
+	if denominator.Cmp(bigOne) != 0 {
 		return Decimal{}, &Error{Code: CodeInexact, Op: op, Err: errors.New("result has no finite decimal representation")}
 	}
-	scale := twos
-	if fives > scale {
-		scale = fives
-	}
+	scale := max(twos, fives)
 	if scale > maxExponentMagnitude {
 		return Decimal{}, valueError(op, "result exponent is out of range")
 	}
 	if twos < scale {
-		numerator.Mul(numerator, new(big.Int).Exp(two, big.NewInt(int64(scale-twos)), nil))
+		numerator.Mul(numerator, new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(scale-twos)), nil))
 	}
 	if fives < scale {
-		numerator.Mul(numerator, new(big.Int).Exp(five, big.NewInt(int64(scale-fives)), nil))
+		numerator.Mul(numerator, new(big.Int).Exp(big.NewInt(5), big.NewInt(int64(scale-fives)), nil))
 	}
 	return normalizeDecimal(numerator, int64(-scale), op)
+}
+
+var bigOne = big.NewInt(1)
+
+// stripFactor divides n by factor as many times as it divides evenly and
+// returns that count. It removes factors in chunks that fit a uint64 so that
+// a denominator like 5^100000 costs thousands, not hundreds of thousands, of
+// big-integer divisions.
+func stripFactor(n *big.Int, factor int64) int {
+	const chunk = 27 // 5^27 < 2^63
+	chunkValue := new(big.Int).Exp(big.NewInt(factor), big.NewInt(chunk), nil)
+	single := big.NewInt(factor)
+	count := 0
+	quotient, remainder := new(big.Int), new(big.Int)
+	for {
+		quotient.QuoRem(n, chunkValue, remainder)
+		if remainder.Sign() != 0 {
+			break
+		}
+		n.Set(quotient)
+		count += chunk
+	}
+	for {
+		quotient.QuoRem(n, single, remainder)
+		if remainder.Sign() != 0 {
+			break
+		}
+		n.Set(quotient)
+		count++
+	}
+	return count
 }
 
 func normalizeDecimal(coefficient *big.Int, exponent int64, op string) (Decimal, error) {
 	if coefficient == nil || coefficient.Sign() == 0 {
 		return Decimal{}, nil
 	}
-	ten, remainder := big.NewInt(10), new(big.Int)
-	for {
-		quotient := new(big.Int)
-		quotient.QuoRem(coefficient, ten, remainder)
-		if remainder.Sign() != 0 {
-			break
-		}
-		coefficient = quotient
-		exponent++
+	digits := new(big.Int).Abs(coefficient).String()
+	trailing := len(digits) - len(strings.TrimRight(digits, "0"))
+	if trailing > 0 {
+		coefficient = new(big.Int).Quo(coefficient, pow10(trailing))
+		exponent += int64(trailing)
 	}
 	if exponent < -maxExponentMagnitude || exponent > maxExponentMagnitude {
 		return Decimal{}, valueError(op, "exponent is out of range")
 	}
-	if len(new(big.Int).Abs(coefficient).String()) > maxDecimalDigits {
+	if len(digits)-trailing > maxDecimalDigits {
 		return Decimal{}, valueError(op, "coefficient is too long")
 	}
 	return Decimal{coefficient: new(big.Int).Set(coefficient), exponent: int32(exponent)}, nil

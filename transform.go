@@ -60,6 +60,9 @@ func (t Transform) toReferenceExact(value Decimal) (Decimal, error) {
 	if !t.valid() {
 		return Decimal{}, &Error{Code: CodeInvalidDefinition, Op: "convert to reference", Err: errors.New("invalid transform")}
 	}
+	if t.IsIdentity() {
+		return value, nil
+	}
 	result := new(big.Rat).Mul(value.rat(), t.scale)
 	result.Add(result, t.offset)
 	return decimalFromRatExact(result, "convert to reference")
@@ -68,6 +71,9 @@ func (t Transform) toReferenceExact(value Decimal) (Decimal, error) {
 func (t Transform) fromReferenceExact(value Decimal) (Decimal, error) {
 	if !t.valid() {
 		return Decimal{}, &Error{Code: CodeInvalidDefinition, Op: "convert from reference", Err: errors.New("invalid transform")}
+	}
+	if t.IsIdentity() {
+		return value, nil
 	}
 	result := new(big.Rat).Sub(value.rat(), t.offset)
 	result.Quo(result, t.scale)
