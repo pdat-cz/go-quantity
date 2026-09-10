@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValueUsesReferenceUnit(t *testing.T) {
@@ -181,4 +182,42 @@ func TestValueJSONRoundTripsAtLimits(t *testing.T) {
 			t.Fatal("JSON round trip changed the value")
 		}
 	}
+}
+
+func FuzzParseJSON(f *testing.F) {
+	for _, seed := range []string{
+		`{"value":"1.5","unit":"length.metre"}`,
+		`{"unit":"temperature.celsius","value":"-40"}`,
+		`{"value":"1e-1500","unit":"length.kilometre"}`,
+		`{"value":1,"unit":"length.metre"}`,
+		`{"value":"1","unit":"length.metre","x":1}`,
+		`[]`, `null`, ``,
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, input []byte) {
+		start := time.Now()
+		value, err := StandardCatalog.ParseJSON(input)
+		if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+			t.Fatalf("ParseJSON of %d bytes took %s", len(input), elapsed)
+		}
+		if err != nil {
+			var typed *Error
+			if !errors.As(err, &typed) {
+				t.Fatalf("untyped error %T: %v", err, err)
+			}
+			return
+		}
+		encoded, err := value.MarshalJSON()
+		if err != nil {
+			t.Fatalf("MarshalJSON after successful parse: %v", err)
+		}
+		again, err := StandardCatalog.ParseJSON(encoded)
+		if err != nil {
+			t.Fatalf("ParseJSON(MarshalJSON()) failed: %v", err)
+		}
+		if !again.Decimal().Equal(value.Decimal()) || again.Unit() != value.Unit() {
+			t.Fatal("JSON round trip changed the value")
+		}
+	})
 }

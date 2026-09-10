@@ -1,6 +1,10 @@
 package quantity
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
 
 func TestUnitIDIsScopedByKind(t *testing.T) {
 	temperature, err := ParseUnitID("temperature.celsius")
@@ -26,4 +30,26 @@ func TestUnitIDRejectsDerivedOrAmbiguousForm(t *testing.T) {
 			t.Errorf("ParseUnitID(%q) unexpectedly succeeded", input)
 		}
 	}
+}
+
+func FuzzParseUnitID(f *testing.F) {
+	for _, seed := range []string{"length.metre", "a.b", "a", "a.b.c", "A.b", "a.", ".b", "", "a\n.b"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, text string) {
+		id, err := ParseUnitID(text)
+		if err != nil {
+			if !errors.Is(err, &Error{Code: CodeInvalidID}) {
+				t.Fatalf("unexpected error %v", err)
+			}
+			return
+		}
+		kind, err := id.Kind()
+		if err != nil || !kind.Valid() || !id.Valid() {
+			t.Fatalf("accepted id %q is not self-consistent", text)
+		}
+		if strings.Count(text, ".") != 1 || strings.ContainsAny(text, "\n\r\x00 ") {
+			t.Fatalf("accepted malformed id %q", text)
+		}
+	})
 }

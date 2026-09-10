@@ -267,3 +267,74 @@ func TestDecimalEqualAndCmp(t *testing.T) {
 		t.Fatal("zero values are not equal")
 	}
 }
+
+func TestParseDecimalRejectsMalformedInput(t *testing.T) {
+	for _, text := range []string{
+		"", "+", "-", ".", ".5", "5.", "1e", "1e+", "1e5.5", "1 ", " 1", "1_000", "0x10",
+		"1e99999999", "1e-99999999", "١", "1,5", "NaN", "Inf", "--1", "1e+-5",
+	} {
+		if _, err := ParseDecimal(text); !errors.Is(err, &Error{Code: CodeInvalidValue}) {
+			t.Errorf("ParseDecimal(%q) error = %v, want invalid_value", text, err)
+		}
+	}
+	for text, want := range map[string]string{
+		"+5": "5", "-0": "0", "-0.0e5": "0", "00": "0", "1E2": "100", "1e-2": "0.01",
+		"123.4500": "123.45", "0.000": "0", "9e0": "9", "-1.5e-3": "-0.0015",
+	} {
+		value, err := ParseDecimal(text)
+		if err != nil {
+			t.Errorf("ParseDecimal(%q): %v", text, err)
+			continue
+		}
+		if value.String() != want {
+			t.Errorf("ParseDecimal(%q) = %s, want %s", text, value, want)
+		}
+	}
+}
+
+func TestDecimalFromFloat64(t *testing.T) {
+	for value, want := range map[float64]string{
+		0.1: "0.1", -2.5: "-2.5", 1e21: "1000000000000000000000", 5e-324: "5e-324", 0: "0",
+	} {
+		decimal, err := DecimalFromFloat64(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected, _ := ParseDecimal(want)
+		if !decimal.Equal(expected) {
+			t.Errorf("DecimalFromFloat64(%g) = %s, want %s", value, decimal, want)
+		}
+		if back, _ := decimal.Float64(); back != value {
+			t.Errorf("Float64() of %s = %g, want %g", decimal, back, value)
+		}
+	}
+}
+
+func FuzzParseDecimal(f *testing.F) {
+	for _, seed := range []string{"0", "-1.5", "1e3", "123.4500", "1e-1500", "+7", "", "1e", "9e1500"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, text string) {
+		value, err := ParseDecimal(text)
+		if err != nil {
+			if !errors.Is(err, &Error{Code: CodeInvalidValue}) {
+				t.Fatalf("unexpected error type %T: %v", err, err)
+			}
+			return
+		}
+		printed := value.String()
+		if len(printed) > maxDecimalTextBytes {
+			t.Fatalf("String() of %q is %d bytes", text, len(printed))
+		}
+		again, err := ParseDecimal(printed)
+		if err != nil {
+			t.Fatalf("ParseDecimal(String()=%q) failed: %v", printed, err)
+		}
+		if !again.Equal(value) {
+			t.Fatalf("round trip of %q via %q changed the value", text, printed)
+		}
+		if sum, err := value.Sub(value); err != nil || !sum.Equal(Decimal{}) {
+			t.Fatalf("x - x != 0 for %q: %v", text, err)
+		}
+	})
+}

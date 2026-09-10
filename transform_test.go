@@ -134,3 +134,70 @@ func TestTransformEqual(t *testing.T) {
 		t.Fatalf("first length unit %s has unexpected transform", got[0].ID())
 	}
 }
+
+// TestEveryStandardUnitInvertsExactly checks reference = value*scale + offset
+// and back for every built-in unit. Units whose transform has a non-decimal
+// offset (Fahrenheit) may legitimately report CodeInexact on the way in; if
+// the value went in, it must come back out unchanged.
+func TestEveryStandardUnitInvertsExactly(t *testing.T) {
+	samples := []string{"0", "1", "-1", "0.5", "1625", "-273.15", "1e-10", "123456789.987654321"}
+	kinds := []Kind{KindElectricCurrent, KindLength, KindTemperature, KindTemperatureDifference}
+	checked := 0
+	for _, kind := range kinds {
+		for _, unit := range StandardCatalog.Units(kind) {
+			for _, text := range samples {
+				amount, err := ParseDecimal(text)
+				if err != nil {
+					t.Fatal(err)
+				}
+				value, err := StandardCatalog.New(amount, unit.ID())
+				if errors.Is(err, &Error{Code: CodeInexact}) {
+					continue
+				}
+				if err != nil {
+					t.Fatalf("New(%s, %s): %v", text, unit.ID(), err)
+				}
+				back, err := value.In(unit.ID())
+				if err != nil {
+					t.Fatalf("In(%s) of %s: %v", unit.ID(), text, err)
+				}
+				if !back.Equal(amount) {
+					t.Errorf("%s %s round-tripped as %s", text, unit.ID(), back)
+				}
+				checked++
+			}
+		}
+	}
+	if checked < 80 {
+		t.Fatalf("only %d round trips checked, the sample set is too small", checked)
+	}
+}
+
+func TestKnownConversions(t *testing.T) {
+	cases := []struct {
+		amount   string
+		from, to UnitID
+		want     string
+	}{
+		{"1", UnitLengthKilometre, UnitLengthMillimetre, "1000000"},
+		{"2.54", UnitLengthCentimetre, UnitLengthMetre, "0.0254"},
+		{"-40", UnitTemperatureCelsius, UnitTemperatureFahrenheit, "-40"},
+		{"0", UnitTemperatureKelvin, UnitTemperatureCelsius, "-273.15"},
+		{"373.15", UnitTemperatureKelvin, UnitTemperatureFahrenheit, "212"},
+		{"9", UnitTemperatureDifferenceFahrenheit, UnitTemperatureDifferenceKelvin, "5"},
+		{"1", UnitElectricCurrentKiloampere, UnitElectricCurrentMicroampere, "1000000000"},
+	}
+	for _, c := range cases {
+		value, err := New(c.amount, c.from)
+		if err != nil {
+			t.Fatalf("New(%s, %s): %v", c.amount, c.from, err)
+		}
+		got, err := value.In(c.to)
+		if err != nil {
+			t.Fatalf("%s %s in %s: %v", c.amount, c.from, c.to, err)
+		}
+		if got.String() != c.want {
+			t.Errorf("%s %s in %s = %s, want %s", c.amount, c.from, c.to, got, c.want)
+		}
+	}
+}
