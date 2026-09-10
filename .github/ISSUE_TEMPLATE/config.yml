@@ -1,5 +1,1 @@
 blank_issues_enabled: false
-contact_links:
-  - name: Open Quantity Schema (OQS)
-    url: https://github.com/pdat-cz/open-quantity-schema
-    about: Questions about the model or unit catalogs belong to the schema project, not this Go implementation.
