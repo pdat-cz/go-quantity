@@ -35,7 +35,11 @@ milliamperes, err := current.In(quantity.UnitElectricCurrentMilliampere)
 Values are stored as an exact `Decimal` in their `ReferenceUnit`. Unit
 conversions use exact rational affine transforms. A conversion that cannot be
 represented by a finite decimal returns `CodeInexact`; `NewFloat64` and
-`InFloat64` provide an explicit approximation boundary.
+`InFloat64` provide an explicit approximation boundary and round exactly once.
+
+`Decimal` holds up to 2000 significant digits with an exponent of ±1500, so
+every value prints in plain notation and round-trips through `ParseDecimal`
+and JSON. Compare decimals with `Equal` or `Cmp`; `==` is a compile error.
 
 The minimal JSON representation is:
 
