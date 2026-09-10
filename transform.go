@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
+	"strings"
 )
 
 // Transform is an exact affine conversion to a Kind's ReferenceUnit:
@@ -112,13 +113,19 @@ func finiteFloat64(value *big.Rat, op string) (float64, error) {
 	return result, nil
 }
 
+// parseRational parses numerator/denominator. Both are bounded by
+// maxDecimalDigits so a definition cannot smuggle in arbitrarily large
+// integers that every later conversion would have to multiply by.
 func parseRational(numerator, denominator string) (*big.Rat, error) {
-	n, ok := new(big.Int).SetString(numerator, 10)
-	if !ok {
+	if !isDigits(strings.TrimPrefix(numerator, "-")) || len(numerator) > maxDecimalDigits+1 {
 		return nil, errors.New("invalid numerator")
 	}
-	d, ok := new(big.Int).SetString(denominator, 10)
-	if !ok || d.Sign() == 0 {
+	if !isDigits(strings.TrimPrefix(denominator, "-")) || len(denominator) > maxDecimalDigits+1 {
+		return nil, errors.New("invalid denominator")
+	}
+	n, _ := new(big.Int).SetString(numerator, 10)
+	d, _ := new(big.Int).SetString(denominator, 10)
+	if d.Sign() == 0 {
 		return nil, errors.New("invalid denominator")
 	}
 	if d.Sign() < 0 {

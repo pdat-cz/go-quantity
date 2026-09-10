@@ -1,6 +1,8 @@
 package quantity
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -106,6 +108,33 @@ func TestExtremeExponentsAreCheap(t *testing.T) {
 		}
 		if elapsed := time.Since(start); elapsed > budget {
 			t.Fatalf("%s took %s, budget %s", text, elapsed, budget)
+		}
+	}
+}
+
+func TestNewDecimalRejectsBadCoefficientBeforeParsing(t *testing.T) {
+	cases := map[string]string{
+		"empty":        "",
+		"plus sign":    "+1",
+		"double minus": "--1",
+		"hex":          "0x10",
+		"underscore":   "1_000",
+		"space":        " 1",
+		"too long":     strings.Repeat("9", maxDecimalDigits+1),
+		"huge":         strings.Repeat("9", 1_000_000),
+	}
+	for name, coefficient := range cases {
+		start := time.Now()
+		if _, err := NewDecimal(coefficient, 0); !errors.Is(err, &Error{Code: CodeInvalidValue}) {
+			t.Errorf("%s: NewDecimal(%q) error = %v, want invalid_value", name, coefficient, err)
+		}
+		if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+			t.Errorf("%s: rejection took %s", name, elapsed)
+		}
+	}
+	for _, coefficient := range []string{"0", "-0", "1", "-1", "007", strings.Repeat("9", maxDecimalDigits)} {
+		if _, err := NewDecimal(coefficient, 0); err != nil {
+			t.Errorf("NewDecimal(%q) = %v, want ok", coefficient, err)
 		}
 	}
 }

@@ -25,14 +25,14 @@ func NewDecimal(coefficient string, exponent int32) (Decimal, error) {
 	if exponent < -maxExponentMagnitude || exponent > maxExponentMagnitude {
 		return Decimal{}, valueError("new decimal", "exponent is out of range")
 	}
-	integer, ok := new(big.Int).SetString(coefficient, 10)
-	if !ok || coefficient == "" || strings.HasPrefix(coefficient, "+") {
-		return Decimal{}, valueError("new decimal", "invalid coefficient")
-	}
 	digits := strings.TrimPrefix(coefficient, "-")
 	if len(digits) > maxDecimalDigits {
 		return Decimal{}, valueError("new decimal", "coefficient is too long")
 	}
+	if !isDigits(digits) {
+		return Decimal{}, valueError("new decimal", "invalid coefficient")
+	}
+	integer, _ := new(big.Int).SetString(coefficient, 10)
 	return normalizeDecimal(integer, int64(exponent), "new decimal")
 }
 
@@ -281,6 +281,21 @@ func normalizeDecimal(coefficient *big.Int, exponent int64, op string) (Decimal,
 		return Decimal{}, valueError(op, "coefficient is too long")
 	}
 	return Decimal{coefficient: new(big.Int).Set(coefficient), exponent: int32(exponent)}, nil
+}
+
+// isDigits reports whether text is a non-empty run of ASCII digits. It is
+// checked before big.Int.SetString so that length limits apply before any
+// allocation proportional to the input.
+func isDigits(text string) bool {
+	if text == "" {
+		return false
+	}
+	for i := 0; i < len(text); i++ {
+		if text[i] < '0' || text[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func pow10(exponent int) *big.Int {

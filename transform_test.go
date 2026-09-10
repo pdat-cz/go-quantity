@@ -3,7 +3,9 @@ package quantity
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestFloatPathsRoundOnce(t *testing.T) {
@@ -70,5 +72,36 @@ func TestNewFloat64RejectsNonFinite(t *testing.T) {
 		if _, err := NewFloat64(amount, UnitLengthMetre); !errors.Is(err, &Error{Code: CodeInvalidValue}) {
 			t.Errorf("NewFloat64(%v) error = %v, want invalid_value", amount, err)
 		}
+	}
+}
+
+func TestNewTransformBoundsAndValidatesRationals(t *testing.T) {
+	huge := strings.Repeat("9", 1_000_000)
+	invalid := [][4]string{
+		{huge, "1", "0", "1"},
+		{"1", huge, "0", "1"},
+		{"1", "1", huge, "1"},
+		{"1", "1", "0", huge},
+		{"0", "1", "0", "1"},
+		{"1", "0", "0", "1"},
+		{"+1", "1", "0", "1"},
+		{"1", "1", "0x1", "1"},
+		{"", "1", "0", "1"},
+	}
+	for _, c := range invalid {
+		start := time.Now()
+		if _, err := NewTransform(c[0], c[1], c[2], c[3]); !errors.Is(err, &Error{Code: CodeInvalidDefinition}) {
+			t.Errorf("NewTransform(%q,%q,%q,%q) error = %v, want invalid_definition", c[0], c[1], c[2], c[3], err)
+		}
+		if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+			t.Errorf("rejection of %d-byte input took %s", len(c[0])+len(c[1])+len(c[2])+len(c[3]), elapsed)
+		}
+	}
+	transform, err := NewTransform("-5", "-9", "0", "-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, d := transform.Scale(); n != "5" || d != "9" {
+		t.Fatalf("Scale() = %s/%s, want 5/9", n, d)
 	}
 }
