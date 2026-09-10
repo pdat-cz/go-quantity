@@ -1,9 +1,6 @@
 package quantity
 
-import (
-	"errors"
-	"fmt"
-)
+import "fmt"
 
 // Code is a stable, machine-readable error category.
 type Code string
@@ -55,8 +52,13 @@ func (e *Error) Unwrap() error {
 	return e.Err
 }
 
-// Is lets callers match errors by Code with errors.Is.
+// Is lets callers match errors by Code with errors.Is. A target with an empty
+// Code matches any *Error. Only the target itself is inspected, never its
+// wrapped chain, as the errors.Is contract requires.
 func (e *Error) Is(target error) bool {
-	var other *Error
-	return errors.As(target, &other) && (other.Code == "" || e.Code == other.Code)
+	other, ok := target.(*Error)
+	if !ok || other == nil || e == nil {
+		return false
+	}
+	return other.Code == "" || e.Code == other.Code
 }
