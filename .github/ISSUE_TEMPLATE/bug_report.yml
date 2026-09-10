@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in go-quantity behaves incorrectly.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: go-quantity version
+      description: Output of `go list -m github.com/pdat-cz/go-quantity`.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      placeholder: go1.27.0 darwin/arm64
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A small Go snippet or test that shows the problem.
+      render: go
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Units, values or catalogs involved, links to the OQS definition if relevant.

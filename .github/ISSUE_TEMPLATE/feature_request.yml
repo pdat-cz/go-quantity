@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose an addition or change to the Go API.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that is hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API
+      description: Sketch of the Go API you would expect.
+      render: go
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Go implementation only
+        - Needs a change in Open Quantity Schema as well
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
