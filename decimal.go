@@ -20,7 +20,11 @@ const (
 
 // Decimal is an immutable finite decimal represented as coefficient ×
 // 10^exponent. Its zero value is the number zero.
+//
+// Decimal is deliberately not comparable with ==, which would compare the
+// internal pointer rather than the number. Use Equal or Cmp.
 type Decimal struct {
+	_           [0]func() // makes == a compile error
 	coefficient *big.Int
 	exponent    int32
 }
@@ -222,8 +226,24 @@ func (d Decimal) addScaled(other Decimal, sign int64, op string) (Decimal, error
 	return normalizeDecimal(left.Add(left, right), exponent, op)
 }
 
-// Cmp compares d and other.
-func (d Decimal) Cmp(other Decimal) int { return d.rat().Cmp(other.rat()) }
+// Cmp compares d and other, returning -1, 0 or +1.
+func (d Decimal) Cmp(other Decimal) int {
+	if d.exponent == other.exponent {
+		return d.coef().Cmp(other.coef())
+	}
+	return d.rat().Cmp(other.rat())
+}
+
+// Equal reports whether d and other are the same number.
+func (d Decimal) Equal(other Decimal) bool { return d.Cmp(other) == 0 }
+
+// coef returns the coefficient, treating the zero value as 0.
+func (d Decimal) coef() *big.Int {
+	if d.coefficient == nil {
+		return new(big.Int)
+	}
+	return d.coefficient
+}
 
 func (d Decimal) rat() *big.Rat {
 	if d.coefficient == nil {

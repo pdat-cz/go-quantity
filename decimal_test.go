@@ -4,6 +4,7 @@ import (
 	jsonv1 "encoding/json"
 	json "encoding/json/v2"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -219,5 +220,50 @@ func TestDecimalSerializesAsTextInBothJSONVersions(t *testing.T) {
 	}
 	if err := jsonv1.Unmarshal([]byte(`{"amount":12.34}`), &bad); err == nil {
 		t.Fatal("JSON number accepted where a string is required")
+	}
+}
+
+func TestDecimalIsNotComparableWithOperator(t *testing.T) {
+	if reflect.TypeOf(Decimal{}).Comparable() {
+		t.Fatal("Decimal must not be comparable with ==, it would compare pointers")
+	}
+}
+
+func TestDecimalEqualAndCmp(t *testing.T) {
+	cases := []struct {
+		left, right string
+		cmp         int
+	}{
+		{"1", "1", 0},
+		{"1.0", "1", 0},
+		{"0", "-0", 0},
+		{"1e3", "1000", 0},
+		{"-1", "1", -1},
+		{"1.5", "1.25", 1},
+		{"1e-1500", "0", 1},
+		{"-1e1500", "1e-1500", -1},
+	}
+	for _, c := range cases {
+		left, err := ParseDecimal(c.left)
+		if err != nil {
+			t.Fatal(err)
+		}
+		right, err := ParseDecimal(c.right)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := left.Cmp(right); got != c.cmp {
+			t.Errorf("Cmp(%s, %s) = %d, want %d", c.left, c.right, got, c.cmp)
+		}
+		if got := right.Cmp(left); got != -c.cmp {
+			t.Errorf("Cmp(%s, %s) = %d, want %d", c.right, c.left, got, -c.cmp)
+		}
+		if got := left.Equal(right); got != (c.cmp == 0) {
+			t.Errorf("Equal(%s, %s) = %v, want %v", c.left, c.right, got, c.cmp == 0)
+		}
+	}
+	var zero Decimal
+	if !zero.Equal(Decimal{}) || zero.Cmp(Decimal{}) != 0 {
+		t.Fatal("zero values are not equal")
 	}
 }
