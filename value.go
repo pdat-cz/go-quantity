@@ -95,9 +95,9 @@ func (v Value) In(unit UnitID) (Decimal, error) {
 	if err := v.valid("convert value"); err != nil {
 		return Decimal{}, err
 	}
-	target, ok := v.catalog.Unit(unit)
-	if !ok {
-		return Decimal{}, &Error{Code: CodeUnknownUnit, Op: "convert value", Unit: unit}
+	target, err := v.catalog.lookup(unit, "convert value")
+	if err != nil {
+		return Decimal{}, err
 	}
 	if target.kind != v.kind {
 		return Decimal{}, &Error{Code: CodeKindMismatch, Op: "convert value", Kind: v.kind, Unit: unit}
@@ -115,9 +115,9 @@ func (v Value) InFloat64(unit UnitID) (float64, error) {
 	if err := v.valid("convert value to float64"); err != nil {
 		return 0, err
 	}
-	target, ok := v.catalog.Unit(unit)
-	if !ok {
-		return 0, &Error{Code: CodeUnknownUnit, Op: "convert value to float64", Unit: unit}
+	target, err := v.catalog.lookup(unit, "convert value to float64")
+	if err != nil {
+		return 0, err
 	}
 	if target.kind != v.kind {
 		return 0, &Error{Code: CodeKindMismatch, Op: "convert value to float64", Kind: v.kind, Unit: unit}
@@ -165,15 +165,28 @@ func (c *Catalog) input(unit UnitID, op string) (UnitDefinition, KindDefinition,
 	if c == nil {
 		return UnitDefinition{}, KindDefinition{}, &Error{Code: CodeInvalidDefinition, Op: op, Err: errors.New("nil catalog")}
 	}
-	definition, ok := c.Unit(unit)
-	if !ok {
-		return UnitDefinition{}, KindDefinition{}, &Error{Code: CodeUnknownUnit, Op: op, Unit: unit}
+	definition, err := c.lookup(unit, op)
+	if err != nil {
+		return UnitDefinition{}, KindDefinition{}, err
 	}
 	kind, ok := c.Kind(definition.kind)
 	if !ok {
 		return UnitDefinition{}, KindDefinition{}, &Error{Code: CodeUnknownKind, Op: op, Kind: definition.kind, Unit: unit}
 	}
 	return definition, kind, nil
+}
+
+// lookup validates unit syntactically before touching the catalog so that a
+// malformed identifier is reported as CodeInvalidID and never echoed verbatim.
+func (c *Catalog) lookup(unit UnitID, op string) (UnitDefinition, error) {
+	if _, err := ParseUnitID(unit.String()); err != nil {
+		return UnitDefinition{}, &Error{Code: CodeInvalidID, Op: op, Err: errors.Unwrap(err)}
+	}
+	definition, ok := c.Unit(unit)
+	if !ok {
+		return UnitDefinition{}, &Error{Code: CodeUnknownUnit, Op: op, Unit: unit}
+	}
+	return definition, nil
 }
 
 func (v Value) valid(op string) error {

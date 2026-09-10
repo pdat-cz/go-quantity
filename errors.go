@@ -1,6 +1,9 @@
 package quantity
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // Code is a stable, machine-readable error category.
 type Code string
@@ -32,9 +35,9 @@ func (e *Error) Error() string {
 	}
 	detail := string(e.Code)
 	if e.Unit != "" {
-		detail += ": unit " + e.Unit.String()
+		detail += ": unit " + strconv.Quote(e.Unit.String())
 	} else if e.Kind != "" {
-		detail += ": kind " + e.Kind.String()
+		detail += ": kind " + strconv.Quote(e.Kind.String())
 	}
 	if e.Err != nil {
 		detail += ": " + e.Err.Error()
