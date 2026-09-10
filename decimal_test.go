@@ -1,6 +1,8 @@
 package quantity
 
 import (
+	jsonv1 "encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -168,5 +170,54 @@ func TestDecimalStringRoundTripsAtLimits(t *testing.T) {
 		if _, err := ParseDecimal(text); !errors.Is(err, &Error{Code: CodeInvalidValue}) {
 			t.Errorf("ParseDecimal(%.20s…) error = %v, want invalid_value", text, err)
 		}
+	}
+}
+
+func TestDecimalSerializesAsTextInBothJSONVersions(t *testing.T) {
+	type reading struct {
+		Amount Decimal `json:"amount"`
+	}
+	amount, err := ParseDecimal("12.340")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"amount":"12.34"}`
+
+	v1, err := jsonv1.Marshal(reading{Amount: amount})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(v1) != want {
+		t.Fatalf("encoding/json v1 = %s, want %s", v1, want)
+	}
+	var decodedV1 reading
+	if err := jsonv1.Unmarshal(v1, &decodedV1); err != nil {
+		t.Fatal(err)
+	}
+	if decodedV1.Amount.Cmp(amount) != 0 {
+		t.Fatal("encoding/json v1 round trip changed the value")
+	}
+
+	v2, err := json.Marshal(reading{Amount: amount})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(v2) != want {
+		t.Fatalf("encoding/json v2 = %s, want %s", v2, want)
+	}
+	var decodedV2 reading
+	if err := json.Unmarshal(v2, &decodedV2); err != nil {
+		t.Fatal(err)
+	}
+	if decodedV2.Amount.Cmp(amount) != 0 {
+		t.Fatal("encoding/json v2 round trip changed the value")
+	}
+
+	var bad reading
+	if err := jsonv1.Unmarshal([]byte(`{"amount":"1e"}`), &bad); !errors.Is(err, &Error{Code: CodeInvalidValue}) {
+		t.Fatalf("malformed decimal error = %v, want invalid_value", err)
+	}
+	if err := jsonv1.Unmarshal([]byte(`{"amount":12.34}`), &bad); err == nil {
+		t.Fatal("JSON number accepted where a string is required")
 	}
 }

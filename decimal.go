@@ -166,6 +166,26 @@ func (d Decimal) String() string {
 	return text
 }
 
+// MarshalText encodes d as its canonical plain-notation string, so Decimal
+// survives encoding/json v1 and v2, YAML, and any other TextMarshaler-aware
+// encoder without silently becoming {}.
+func (d Decimal) MarshalText() ([]byte, error) {
+	return []byte(d.String()), nil
+}
+
+// UnmarshalText parses text with ParseDecimal.
+func (d *Decimal) UnmarshalText(text []byte) error {
+	if d == nil {
+		return valueError("unmarshal decimal", "nil Decimal receiver")
+	}
+	parsed, err := ParseDecimal(string(text))
+	if err != nil {
+		return err
+	}
+	*d = parsed
+	return nil
+}
+
 // Float64 converts d to a binary float and reports whether the conversion is
 // exact.
 func (d Decimal) Float64() (float64, bool) { return d.rat().Float64() }
