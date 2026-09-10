@@ -8,9 +8,14 @@ import (
 	"strings"
 )
 
+// Limits are chosen so that every Decimal prints in plain notation within
+// maxDecimalTextBytes, and every Value therefore fits maxValueJSONBytes with
+// room for the longest UnitID. That makes String and Data round trips total:
+// whatever ParseDecimal accepts, String produces, and vice versa.
 const (
-	maxDecimalDigits     = 100_000
-	maxExponentMagnitude = 100_000
+	maxDecimalDigits     = 2000
+	maxExponentMagnitude = 1500
+	maxDecimalTextBytes  = maxDecimalDigits + maxExponentMagnitude + 16
 )
 
 // Decimal is an immutable finite decimal represented as coefficient ×
@@ -39,7 +44,7 @@ func NewDecimal(coefficient string, exponent int32) (Decimal, error) {
 // ParseDecimal parses a finite base-10 number. Plain and scientific notation
 // are accepted and normalized.
 func ParseDecimal(text string) (Decimal, error) {
-	if text == "" || len(text) > maxDecimalDigits+32 {
+	if text == "" || len(text) > maxDecimalTextBytes {
 		return Decimal{}, valueError("parse decimal", "invalid length")
 	}
 	i := 0
@@ -102,6 +107,10 @@ func ParseDecimal(text string) (Decimal, error) {
 	digits = strings.TrimLeft(digits, "0")
 	if digits == "" {
 		return Decimal{}, nil
+	}
+	if trimmed := strings.TrimRight(digits, "0"); len(trimmed) < len(digits) {
+		exponent += int64(len(digits) - len(trimmed))
+		digits = trimmed
 	}
 	if len(digits) > maxDecimalDigits {
 		return Decimal{}, valueError("parse decimal", "coefficient is too long")

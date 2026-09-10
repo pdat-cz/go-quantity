@@ -5,6 +5,9 @@ import (
 	"errors"
 )
 
+// maxValueJSONBytes bounds both directions: ParseJSON rejects longer input
+// and MarshalJSON refuses to produce it. The decimal limits guarantee the
+// second case cannot happen for a valid Value; the check is a tripwire.
 const maxValueJSONBytes = 4096
 
 // Value is the Go representation of an OQS QuantityValue. Its amount and Unit
@@ -136,7 +139,14 @@ func (v Value) MarshalJSON() ([]byte, error) {
 	if err := v.valid("marshal value"); err != nil {
 		return nil, err
 	}
-	return json.Marshal(v.Data())
+	encoded, err := json.Marshal(v.Data())
+	if err != nil {
+		return nil, err
+	}
+	if len(encoded) > maxValueJSONBytes {
+		return nil, valueError("marshal value", "encoded value exceeds transport limit")
+	}
+	return encoded, nil
 }
 
 // UnmarshalJSON reads the minimal OQS JSON form using StandardCatalog.

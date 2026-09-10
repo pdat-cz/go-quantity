@@ -83,9 +83,9 @@ func TestExtremeExponentsAreCheap(t *testing.T) {
 		text string
 		unit UnitID
 	}{
-		{"1e-100000", UnitLengthKilometre},
-		{"1e100000", UnitLengthMillimetre},
-		{"-7e-99999", UnitLengthKilometre},
+		{"1e-1500", UnitLengthKilometre},
+		{"1e1500", UnitLengthMillimetre},
+		{"-7e-1499", UnitLengthKilometre},
 	}
 	for _, c := range cases {
 		text := c.text
@@ -135,6 +135,38 @@ func TestNewDecimalRejectsBadCoefficientBeforeParsing(t *testing.T) {
 	for _, coefficient := range []string{"0", "-0", "1", "-1", "007", strings.Repeat("9", maxDecimalDigits)} {
 		if _, err := NewDecimal(coefficient, 0); err != nil {
 			t.Errorf("NewDecimal(%q) = %v, want ok", coefficient, err)
+		}
+	}
+}
+
+func TestDecimalStringRoundTripsAtLimits(t *testing.T) {
+	nines := strings.Repeat("9", maxDecimalDigits)
+	cases := []string{
+		"1e1500", "1e-1500", "-1e1500",
+		nines + "e1500", nines + "e-1500", "-" + nines + "e-1500",
+		"1" + strings.Repeat("0", 1500), // trailing zeros do not count as coefficient digits
+		"0." + strings.Repeat("0", 1499) + "9",
+	}
+	for _, text := range cases {
+		value, err := ParseDecimal(text)
+		if err != nil {
+			t.Fatalf("ParseDecimal(%.20s…): %v", text, err)
+		}
+		printed := value.String()
+		if len(printed) > maxDecimalTextBytes {
+			t.Fatalf("String() of %.20s… is %d bytes, over the parse limit", text, len(printed))
+		}
+		again, err := ParseDecimal(printed)
+		if err != nil {
+			t.Fatalf("ParseDecimal(String()) of %.20s…: %v", text, err)
+		}
+		if again.Cmp(value) != 0 {
+			t.Fatalf("round trip of %.20s… changed the value", text)
+		}
+	}
+	for _, text := range []string{"1e1501", "1e-1501", nines + "9", "1" + nines + "e-1"} {
+		if _, err := ParseDecimal(text); !errors.Is(err, &Error{Code: CodeInvalidValue}) {
+			t.Errorf("ParseDecimal(%.20s…) error = %v, want invalid_value", text, err)
 		}
 	}
 }

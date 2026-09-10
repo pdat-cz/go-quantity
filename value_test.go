@@ -5,6 +5,7 @@ import (
 	json "encoding/json/v2"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -142,5 +143,42 @@ func TestValueJSONRejectsUnknownFields(t *testing.T) {
 	_, err := StandardCatalog.ParseJSON([]byte(`{"value":"1","unit":"electric_current.ampere","extra":true}`))
 	if err == nil {
 		t.Fatal("unknown field unexpectedly accepted")
+	}
+}
+
+func TestValueJSONRoundTripsAtLimits(t *testing.T) {
+	longest := UnitID(strings.Repeat("k", 128) + "." + strings.Repeat("u", 63))
+	kind, _ := longest.Kind()
+	catalog, err := NewCatalog(
+		[]KindDefinition{mustKind(kind, "Long", longest)},
+		[]UnitDefinition{mustUnit(longest, kind, "long", "l", IdentityTransform())},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nines := strings.Repeat("9", maxDecimalDigits)
+	for _, text := range []string{nines + "e1500", "-" + nines + "e-1500"} {
+		amount, err := ParseDecimal(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, err := catalog.New(amount, longest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := value.MarshalJSON()
+		if err != nil {
+			t.Fatalf("MarshalJSON: %v", err)
+		}
+		if len(encoded) > maxValueJSONBytes {
+			t.Fatalf("encoded %d bytes, over the ParseJSON limit", len(encoded))
+		}
+		decoded, err := catalog.ParseJSON(encoded)
+		if err != nil {
+			t.Fatalf("ParseJSON(MarshalJSON()): %v", err)
+		}
+		if decoded.Decimal().Cmp(amount) != 0 {
+			t.Fatal("JSON round trip changed the value")
+		}
 	}
 }
